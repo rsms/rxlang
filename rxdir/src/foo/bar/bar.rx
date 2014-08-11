@@ -1,0 +1,38 @@
+package bar
+
+import "foo/bar/util"
+
+0
+42
+0600
+0xBadFace
+170141183460469231731687303715884105727
+
+0.
+72.40
+072.40
+2.71828
+1.e+0
+6.67428e-11
+1E6
+.25
+f: .12345E+5
+
+.
+..
+...
+
+// A comment
+😄: 345
+
+"日本語" == "\u65e5本\U00008a9e"
+"ÿÿ" == "\xff\u00FF"
+// "\uD800"       // illegal: surrogate half
+// "\U00110000"   // illegal: invalid Unicode code point
+"😰" == "\U0001F630"
+'\U0001F630'
+''
+
+func NumberOfLOLs() {
+  util.ImportanceOfLOL() * 2
+}

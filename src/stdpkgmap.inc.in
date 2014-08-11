@@ -1,0 +1,8 @@
+static const std::map<std::string,std::string> kStdPkgMap{
+  {"std",
+  // e.g. PKGENTRY(iostream, "iostream")
+#define PKGENTRY(symname, strname) "#include <" strname ">\n"
+@STDPKG_ENTRIES@
+#undef PKGENTRY
+  }
+};
