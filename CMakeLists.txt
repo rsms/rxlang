@@ -56,7 +56,8 @@ include_directories("${DEPS_PREFIX}/include")
 include(cmake/pch.cmake)
 add_pch(rx_pch src/prefix.hh src/prefix.cc)
 
-add_executable(rx
+# librx
+add_library(librx STATIC
   src/async.cc
   src/asyncgroup.cc
   src/compiler.cc
@@ -65,45 +66,56 @@ add_executable(rx
   src/hash.cc
   src/lex.cc
   src/net.cc
-  src/rx.cc
   src/srcfile.cc
   src/text.cc
   src/time.cc
 )
-use_pch(rx rx_pch)
+set_target_properties(librx PROPERTIES OUTPUT_NAME rx)
+use_pch(librx rx_pch)
 
+# libs needed when linking with librx
+include(cmake/FindLibLLVM.cmake)
+include(cmake/FindLibClang.cmake)
+find_library(LIB_c "c")
+find_library(LIB_m "m")
+find_library(LIB_z "z")
+find_library(LIB_curses "curses")
+set(LIBRX_LIBS
+  ${LIBLLVM_LIB_FILES}
+  ${LIBCLANG_STATIC_LIBS}
+  "${DEPS_PREFIX}/lib/libc++.dylib"
+  "${DEPS_PREFIX}/lib/libuv.a"
+  ${LIB_c}
+  ${LIB_m}
+  ${LIB_z}
+  ${LIB_curses}
+)
+
+# Generate stdpkgmap.inc
 execute_process(
   COMMAND sh -c
   "cd '${DEPS_PREFIX}/include/c++/v1' && find -E . -depth 1 -type f -regex '.+/[a-z]+' -exec echo '{}' ';' | sed -E 's/^\\.\\/(.+)\$/  PKGENTRY(\\1, \"\\1\")/'"
   OUTPUT_VARIABLE STDPKG_ENTRIES)
-
-# message("STDPKG_ENTRIES: ${STDPKG_ENTRIES}")
 configure_file(
   "${PROJECT_SOURCE_DIR}/src/stdpkgmap.inc.in"
   "${PROJECT_BINARY_DIR}/generated-include/stdpkgmap.inc")
 include_directories("${PROJECT_BINARY_DIR}/generated-include")
 
-include(cmake/FindLibLLVM.cmake)
-target_link_libraries(rx ${LIBLLVM_LIB_FILES})
 
-include(cmake/FindLibClang.cmake)
-target_link_libraries(rx ${LIBCLANG_STATIC_LIBS})
+# rx program
+add_executable(rx src/rx.cc)
+use_pch(rx rx_pch)
+target_link_libraries(rx librx ${LIBRX_LIBS})
 
-target_link_libraries(rx "${DEPS_PREFIX}/lib/libc++.dylib")
 
-target_link_libraries(rx "${DEPS_PREFIX}/lib/libuv.a")
+# unit tests
+enable_testing()
+add_subdirectory(test)
 
-find_library(LIB_curses curses "${DEPS_PREFIX}/lib")
-target_link_libraries(rx ${LIB_curses})
-
-find_library(LIB_c "c")
-target_link_libraries(rx c)
-
-find_library(LIB_z "m")
-target_link_libraries(rx ${LIB_m})
-
-find_library(LIB_z "z")
-target_link_libraries(rx ${LIB_z})
+# add_test(text text_test)
+# add_test(NAME <name> [CONFIGURATIONS [Debug|Release|...]]
+#           [WORKING_DIRECTORY dir]
+#           COMMAND <command> [arg1 [arg2 ...]])
 
 
 # message("CLANG_LIB:           ${CLANG_LIB}")
