@@ -1,12 +1,10 @@
 #pragma once
 namespace rx {
-  using UChar = uint32_t;
-  static const UChar UCharMax = UINT32_MAX;
-  using Text = std::basic_string<UChar>; // Unicode text
-  std::ostream& operator<< (std::ostream& os, const Text&);
-}
 
-namespace rx {
+using UChar                 = char32_t;
+using Text                  = std::basic_string<UChar>; // Unicode text
+static const UChar UCharMax = UINT32_MAX;
+
 namespace text {
 using std::string;
 
@@ -82,6 +80,9 @@ inline bool isHexDigit(UChar c) {
 inline bool isWhitespaceChar(UChar c) { return category(c) == Category::NormativeZs; }
 inline bool isControlChar(UChar c) { return category(c) == Category::NormativeCc; }
 
+inline std::ostream& operator<< (std::ostream& os, const rx::Text& v) {
+  return os << rx::text::encodeUTF8(v);
+}
 
 }} // namespace
 
@@ -89,8 +90,3 @@ namespace std {
   inline std::string to_string(const rx::Text& text) { return rx::text::encodeUTF8(text); }
 }
 
-namespace rx {
-  inline std::ostream& operator<< (std::ostream& os, const rx::Text& v) {
-    return os << rx::text::encodeUTF8(v);
-  }
-}
