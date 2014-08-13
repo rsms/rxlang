@@ -50,54 +50,71 @@ struct Lex::Imp {
   UChar       _pc = UCharMax; // previous character which should be used instead of reading next c
   UChar       _c;  // current character
   Token       _tok;
+  bool        _tokIsQueued = false;
+  const char* _lineBegin;
+  SrcLocation _srcLoc;
   rx::Error   _err;
 
-  Imp(const char* p, size_t z) : _begin{p}, _end{p+z}, _p{p}, _tok{Token::End} {}
+  Imp(const char* p, size_t z) : _begin{p}, _end{p+z}, _p{p}, _tok{Tokens::End} {}
 
 
-  void putBackChar() { _pc = _c; }
-
+  void undoChar() {
+    _p -= text::UTF8SizeOf(_c);
+  }
 
   UChar nextChar() {
-    if (_pc != UCharMax) {
-      _c = _pc;
-      _pc = UCharMax;
-    } else {
-      _c = UTF8::next(_p, _end);
-    }
+    _c = UTF8::next(_p, _end);
     return _c;
   }
 
-  UChar peekNextChar() {
-    if (_pc != UCharMax) {
-      return _pc;
-    } else {
-      auto p = _p;
-      return UTF8::next(p, _end);
-    }
-  }
-
-  Token error(const char* msg) {
-    _err = {msg};
-    return _tok = Error;
+  Token setTok(Token t) {
+    _srcLoc.length = (_p - _begin) - _srcLoc.offset;
+    return _tok = t;
   }
 
   Token error(const string& msg) {
     _err = {msg};
-    return _tok = Error;
+    return setTok(Error);
   }
 
 
   Token next(Text& value) {
+    if (_tokIsQueued) {
+      // Return queued token
+      _tokIsQueued = false;
+      return _tok;
+    }
+
+    if (_tok == '\n') {
+      // Increase line if previous token was a linebreak. This way linebreaks are semantically
+      // at the end of a line, rather than at the beginning of a line.
+      ++_srcLoc.line;
+      _lineBegin = _p;
+    }
+
+    // Initialize if needed, or update source offset
+    // if (_p == nullptr) {
+    //   _p = _begin-1;
+    //   _lineBegin = _begin;
+    //   _srcLoc.offset = 0;
+    //   _srcLoc.line = 0;
+    //   _srcLoc.column = 0;
+    // } else {
+      _srcLoc.offset = _p - _begin;
+      _srcLoc.column = _p - _lineBegin;
+    // }
+
     value.clear();
-    if (_p == nullptr) _p = _begin-1;
-    bool isReadingSym = false;
+      // Clear value
 
-    // This is root switch which has a dual purpose: Initiate tokens and reading symbols.
+    // The root switch has a dual purpose: Initiate tokens and reading symbols.
     // Because symbols are pretty much "anything else", this is the most straight-forward way.
-
+    bool isReadingSym = false;
     #define ADDSYM_OR if (isReadingSym) { value += _c; break; } else
-    #define ENDSYM_OR if (isReadingSym) { _tok = Symbol; putBackChar(); return _tok; } else
+    #define ENDSYM_OR if (isReadingSym) { \
+      undoChar(); \
+      return setTok(Symbol); \
+    } else
 
     // Newline       = /* the Unicode code point U+000A */ .
     // UnicodeChar   = /* an arbitrary Unicode code point except newline */ .
@@ -107,23 +124,39 @@ struct Lex::Imp {
     FOREACH_CHAR {
       CTRL_CASES  WHITESPACE_CASES  ENDSYM_OR break; // ignore
 
-      case '\n': ENDSYM_OR return _tok = LineBreak;
+      case '\n':
+        ENDSYM_OR {
+          // When the input is broken into tokens, a semicolon is automatically inserted into the
+          // token stream at the end of a non-blank line if the line's final token is
+          //   • an identifier
+          //   • an integer, floating-point, imaginary, rune, or string literal
+          //   • one of the keywords break, continue, fallthrough, or return
+          //   • one of the operators and delimiters ++, --, ), ], or }
+          if ( _tok == Symbol ||
+              (_tok > BeginLit && _tok < EndLit) ||
+              _tok == U')' ||
+              _tok == U']' ||
+              _tok == U'}'
+          ) {
+            setTok('\n');
+            _tokIsQueued = true;
+            return ';';
+          } else {
+            setTok('\n');
+            return _tok;
+          }
+        }
 
-      case '{':  ENDSYM_OR return _tok = OpenBlock;   case '}': ENDSYM_OR return _tok = CloseBlock;
-      case '(':  ENDSYM_OR return _tok = OpenGroup;   case ')': ENDSYM_OR return _tok = CloseGroup;
-      case '[':  ENDSYM_OR return _tok = OpenCollLit; case ']': ENDSYM_OR return _tok = CloseCollLit;
-      
+      case '{':  case '}':
+      case '(':  case ')':
+      case '[':  case ']':
       case '<': case '>':
-      case '+': case '-':
-      case '*':
-        ENDSYM_OR { value = _c; return _tok = Op; }
+      case ':': case ',': case ';':
+      case '+': case '-': case '*':
+        ENDSYM_OR return setTok(_c);
 
       case '/':  ENDSYM_OR return readSolidus(value);
       case '=':  ENDSYM_OR return readEq(value);
-
-      case ',':  ENDSYM_OR return _tok = Comma;
-      case ':':  ENDSYM_OR return _tok = Colon;
-      case ';':  ENDSYM_OR return _tok = Semicolon;
 
       case '.':  ENDSYM_OR return readDot(value); // "." | ".." | "..." | "."<float>
 
@@ -144,7 +177,7 @@ struct Lex::Imp {
       }
     }
 
-    return Lex::End;
+    return isReadingSym ? setTok(Symbol) : Lex::End;
   }
 
 
@@ -152,9 +185,9 @@ struct Lex::Imp {
     // Eq   = "=" | EqEq
     // EqEq = "=="
     switch (nextChar()) {
-      case UCharMax: return error("Unexpected end of input");
-      case '=': return _tok = EqEq;
-      default:  putBackChar(); return _tok = Eq;
+      case UCharMax:        return error("Unexpected end of input");
+      case '=':             return setTok(EqEq);
+      default:  undoChar(); return setTok(U'=');
     }
   }
 
@@ -163,9 +196,9 @@ struct Lex::Imp {
     // Solidus     = "/" | LineComment
     // LineComment = "//" <any except LF> <LF>
     switch (nextChar()) {
-      case UCharMax: return error("Unexpected end of input");
-      case '/': return readLineComment(value);
-      default:  putBackChar(); return _tok = Solidus;
+      case UCharMax:        return error("Unexpected end of input");
+      case '/':             return readLineComment(value);
+      default:  undoChar(); return setTok(U'/');
     }
   }
 
@@ -173,10 +206,10 @@ struct Lex::Imp {
   Token readLineComment(Text& value) {
     // Enter at "//"
     FOREACH_CHAR {
-      case '\n': return _tok = LineComment;
+      case '\n': undoChar(); return setTok(LineComment);
       default:   value += _c; break;
     }
-    return _tok = LineComment;
+    return setTok(LineComment);
   }
 
 
@@ -218,7 +251,7 @@ struct Lex::Imp {
       default:        value = _c; break;
     }
     switch (nextChar()) {
-      case '\'':      return _tok = CharLit;
+      case '\'':      return setTok(CharLit);
       default:        return error("Expected ' to end single-character literal");
     }
   }
@@ -228,7 +261,7 @@ struct Lex::Imp {
     // TextLit = '"' ( UnicodeChar | EscapedUnicodeChar<"> )* '"'
     FOREACH_CHAR {
       LINEBREAK_CASES return error("Illegal character in character literal");
-      case '"':       return _tok = TextLit;
+      case '"':       return setTok(TextLit);
       case '\\':      if (!readCharLitEscape<'"'>(value)) return _tok; break;
       default:        value += _c; break;
     }
@@ -281,11 +314,11 @@ struct Lex::Imp {
       case '.':           return readFloatLitAtDot(value);
       OCTNUM_CASES        return readOctIntLit(value);
       default: {
-        putBackChar();
-        return _tok = DecIntLit; // special case '0'
+        undoChar();
+        return setTok(DecIntLit); // special case '0'
       }
     }
-    return _tok = DecIntLit; // special case '0' as last char in input
+    return setTok(DecIntLit); // special case '0' as last char in input
   }
 
 
@@ -297,9 +330,9 @@ struct Lex::Imp {
         value.insert(0, 1, '0');
         return readFloatLitAtDot(value);
       }
-      default: { putBackChar(); return _tok = OctIntLit; }
+      default: { undoChar(); return setTok(OctIntLit); }
     }
-    return _tok = OctIntLit;
+    return setTok(OctIntLit);
   }
 
 
@@ -307,11 +340,11 @@ struct Lex::Imp {
     value = _c; // Enter at ('1' ... '9')
     FOREACH_CHAR {
       DECNUM_CASES { value += _c; break; }
-      case 'e': case 'E': return readFloatLitAtExp(value);
-      case '.':           return readFloatLitAtDot(value);
-      default: { putBackChar(); return _tok = DecIntLit; }
+      case 'e': case 'E':    return readFloatLitAtExp(value);
+      case '.':              return readFloatLitAtDot(value);
+      default: { undoChar(); return setTok(DecIntLit); }
     }
-    return _tok = DecIntLit;
+    return setTok(DecIntLit);
   }
 
 
@@ -319,7 +352,7 @@ struct Lex::Imp {
     value.clear(); // ditch '0'. Enter at "x" in "0xN..."
     FOREACH_CHAR {
       HEXNUM_CASES { value += _c; break; }
-      default: { putBackChar(); return _tok = HexIntLit; }
+      default: { undoChar(); return setTok(HexIntLit); }
     }
     return error("Incomplete hex literal"); // special case: '0x' is the last of input
   }
@@ -329,19 +362,24 @@ struct Lex::Imp {
     value = _c; // enter at "."
     switch (nextChar()) {
       case UCharMax: return error("Unexpected '.' at end of input");
-      case '.': {
-        // Dots      = TwoDots | ThreeDots
-        // TwoDots   = ".."
-        // ThreeDots = "..."
-        if (nextChar() == '.') {
-          return _tok = ThreeDots;
+      case U'.': {
+        // Dots      = DotDot | DotDotDot
+        // DotDot   = ".."
+        // DotDotDot = "..."
+        if (nextChar() == U'.') {
+          if (nextChar() == U'.') {
+            return error("Unexpected '.' after '...'");
+          } else {
+            undoChar();
+            return setTok(DotDotDot);
+          }
         } else {
-          putBackChar();
-          return _tok = TwoDots;
+          undoChar();
+          return setTok(DotDot);
         }
       }
-      DECNUM_CASES return readFloatLitAtDot(value);
-      default: putBackChar(); return _tok = Dot;
+      DECNUM_CASES         return readFloatLitAtDot(value);
+      default: undoChar(); return setTok(U'.');
     }
   }
 
@@ -355,10 +393,10 @@ struct Lex::Imp {
     // exponent  = ( "e" | "E" ) [ "+" | "-" ] decimals
     FOREACH_CHAR {
       DECNUM_CASES { value += _c; break; }
-      case 'e': case 'E': return readFloatLitAtExp(value);
-      default: { putBackChar(); return _tok = FloatLit; }
+      case 'e': case 'E':    return readFloatLitAtExp(value);
+      default: { undoChar(); return setTok(FloatLit); }
     }
-    return _tok = FloatLit; // special case '0.'
+    return setTok(FloatLit); // special case '0.'
   }
 
 
@@ -381,14 +419,14 @@ struct Lex::Imp {
 
     FOREACH_CHAR {
       DECNUM_CASES { value += _c; break; }
-      default: { putBackChar(); return _tok = FloatLit; }
+      default: { undoChar(); return setTok(FloatLit); }
     }
 
-    return _tok = FloatLit; // special case '<decnum>[E|e]?[+|-]?<decnum>'
+    return setTok(FloatLit); // special case '<decnum>[E|e]?[+|-]?<decnum>'
 
    illegal_exp_value:
     error("Illegal value '" + text::repr(_c) + "' for exponent in float literal");
-    putBackChar();
+    undoChar();
     return _tok;
   }
 
@@ -399,19 +437,22 @@ struct Lex::Imp {
 Lex::Lex(const char* p, size_t z) : self{new Imp{p, z}} {}
 Lex::~Lex() { if (self != nullptr) delete self; }
 
-bool Lex::isValid() const { return self->_p < self->_end; }
+bool Lex::isValid() const { return self->_p < self->_end || self->_tokIsQueued; }
 Lex::Token Lex::current() const { return self->_tok; }
 const rx::Error& Lex::lastError() const { return self->_err; }
 Lex::Token Lex::next(Text& value) { return self->next(value); }
+const Lex::SrcLocation& Lex::srcLocation() const { return self->_srcLoc; }
 
 string Lex::repr(Token t, const Text& value) {
   switch (t) {
-    #define T(Name, HasValue) case Lex::Token::Name: { \
-      return (HasValue && !value.empty()) ? string{#Name "(" + text::repr(value) + ")"} : #Name; \
+    #define T(Name, HasValue) case Lex::Tokens::Name: { \
+      return (HasValue && !value.empty()) ? string{#Name} + " \"" + text::repr(value) + "\"" : \
+             string{#Name}; \
     }
     RX_LEX_TOKENS(T)
     #undef T
-    default: return "?";
+    default:
+      return text::repr(t);
   }
 }
 

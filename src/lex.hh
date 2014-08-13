@@ -7,53 +7,51 @@ namespace rx {
 using std::string;
 
 #define RX_LEX_TOKENS(T) \
-  /*Name,       HasValue */ \
-  T( Error,        0 ) \
-  T( End,          0 ) \
-  T( LineBreak,    0 ) \
-  T( Op,           1 ) \
-  T( Solidus,      0 ) \
-  T( Eq,           0 ) \
-  T( EqEq,         0 ) \
-  T( Comma,        0 ) \
-  T( Colon,        0 ) \
-  T( Semicolon,    0 ) \
-  T( OpenAng,      0 ) \
-  T( CloseAng,     0 ) \
-  T( Dot,          0 ) \
-  T( TwoDots,      0 ) \
-  T( ThreeDots,    0 ) \
-  T( DecIntLit,    1 ) \
-  T( OctIntLit,    1 ) \
-  T( HexIntLit,    1 ) \
-  T( FloatLit,     1 ) \
-  T( OpenBlock,    0 ) \
-  T( CloseBlock,   0 ) \
-  T( OpenGroup,    0 ) \
-  T( CloseGroup,   0 ) \
-  T( OpenCollLit,  0 ) \
-  T( CloseCollLit, 0 ) \
-  T( Symbol,       1 ) \
-  T( LineComment,  1 ) \
-  T( CharLit,      1 ) \
-  T( TextLit,      1 ) \
-
+  /*Name,    0=no value, 1=has value, (=group start, )=group end */ \
+  T( Error,            0   ) \
+  T( End,              0   ) \
+  T( EqEq,             0   ) \
+  T( DotDot,           0   ) \
+  T( DotDotDot,        0   ) \
+  T( BeginLit, '('         ) \
+    T( BeginNumLit, '('    ) \
+      T( DecIntLit,    1   ) \
+      T( OctIntLit,    1   ) \
+      T( HexIntLit,    1   ) \
+      T( FloatLit,     1   ) \
+    T( EndNumLit, ')'      ) \
+    T( CharLit,        1   ) \
+    T( TextLit,        1   ) \
+  T( EndLit, ')'           ) \
+  T( Symbol,           1   ) \
+  T( LineComment,      1   ) \
 
 struct Lex {
-
-  enum Token {
-    #define T(Name, HasValue) Name,
-    RX_LEX_TOKENS(T)
-    #undef T
-  };
-
+  using Token = UChar;
   Lex(const char* p, size_t z);
   ~Lex();
   bool isValid() const;
   const rx::Error& lastError() const;
   Token next(Text&);
   Token current() const;
+
+  struct SrcLocation {
+    size_t   offset = 0; // byte offset into source `p`
+    uint32_t length = 0; // number of source bytes
+    uint32_t line   = 0; // zero-based
+    uint32_t column = 0; // zero-based and expressed in source bytes (not Unicode characters)
+  };
+  const SrcLocation& srcLocation() const;
+    // Source location of current token 
+
   static string repr(Token, const Text& value);
+
+  enum Tokens : Token {
+    BeginSpecialTokens = 0xFFFFFF, // way past last valid Unicode point
+    #define T(Name, HasValue) Name,
+    RX_LEX_TOKENS(T)
+    #undef T
+  };
 
 private:
   struct Imp; Imp* self = nullptr;

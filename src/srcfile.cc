@@ -21,7 +21,13 @@ Error SrcFile::parse() {
         case Lex::Error: return lex.lastError();
         case Lex::End:   break;
         default: {
-          cerr << Lex::repr(tok, tokValue) << endl;
+          cerr << Lex::repr(tok, tokValue)
+               << "  @ "
+               << "offset:" << lex.srcLocation().offset << ", "
+               << "length:" << lex.srcLocation().length << ", "
+               << "line:  " << lex.srcLocation().line << ", "
+               << "column:" << lex.srcLocation().column
+               << endl;
           break;
         }
       }

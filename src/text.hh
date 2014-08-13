@@ -15,6 +15,9 @@ string encodeUTF8(const Text&);
 string encodeUTF8(UChar);
   // Convert Unicode text into a UTF8 string.
 
+size_t UTF8SizeOf(UChar);
+  // Number of bytes needed to encode a character as UTF8
+
 string repr(UChar);
 string repr(const Text&);
   // Printable UTF8 representation with non-graphic characters encoded as U+X{4,8}
@@ -72,6 +75,9 @@ enum Category : uint8_t {
 
 // ===============================================================================================
 
+inline size_t UTF8SizeOf(UChar c) {
+  return (c < 0x80) ? 1 : (c < 0x800) ? 2 : (c < 0x10000) ? 3 : 4;
+}
 inline bool isValidChar(UChar c) { return category(c) != Category::Unassigned; }
 inline bool isDecimalDigit(UChar c) { return c > ('0'-1) && c < ('9'+1); }
 inline bool isHexDigit(UChar c) {
