@@ -16,9 +16,4 @@ if ! [ -d build ]; then
   # files have changes, thus there's no need to re-run cmake while the build directory exists.
 fi
 
-if [ "$1" == "test" ]; then
-  # Add "tests" group dependency to make sure all tests are built before we actually run test
-  make -C build tests $@ # VERBOSE=1
-else
-  make -C build $@ # VERBOSE=1
-fi
+make -C build $@ # VERBOSE=1
