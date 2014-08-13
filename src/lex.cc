@@ -47,7 +47,6 @@ struct Lex::Imp {
   const char* _begin;
   const char* _end;
   const char* _p;
-  UChar       _pc = UCharMax; // previous character which should be used instead of reading next c
   UChar       _c;  // current character
   Token       _tok;
   bool        _tokIsQueued = false;
@@ -92,34 +91,16 @@ struct Lex::Imp {
       _lineBegin = _p;
     }
 
-    // Initialize if needed, or update source offset
-    // if (_p == nullptr) {
-    //   _p = _begin-1;
-    //   _lineBegin = _begin;
-    //   _srcLoc.offset = 0;
-    //   _srcLoc.line = 0;
-    //   _srcLoc.column = 0;
-    // } else {
-      _srcLoc.offset = _p - _begin;
-      _srcLoc.column = _p - _lineBegin;
-    // }
-
+    _srcLoc.offset = _p - _begin;
+    _srcLoc.column = _p - _lineBegin;
     value.clear();
-      // Clear value
+      // Set source location and clear value
 
     // The root switch has a dual purpose: Initiate tokens and reading symbols.
     // Because symbols are pretty much "anything else", this is the most straight-forward way.
     bool isReadingSym = false;
     #define ADDSYM_OR if (isReadingSym) { value += _c; break; } else
-    #define ENDSYM_OR if (isReadingSym) { \
-      undoChar(); \
-      return setTok(Symbol); \
-    } else
-
-    // Newline       = /* the Unicode code point U+000A */ .
-    // UnicodeChar   = /* an arbitrary Unicode code point except newline */ .
-    // UnicodeLetter = /* a Unicode code point classified as "Letter" */ .
-    // UnicodeDigit  = /* a Unicode code point classified as "Decimal Digit" */ .
+    #define ENDSYM_OR if (isReadingSym) { undoChar(); return setTok(Symbol); } else
 
     FOREACH_CHAR {
       CTRL_CASES  WHITESPACE_CASES  ENDSYM_OR break; // ignore

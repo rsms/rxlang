@@ -180,6 +180,8 @@ int main(int argc, const char** argv) {
   A_SrcFails("\"\\u65e5\xE6\x9C\xAC\\U00008a9e")  // Unterminated literal at end of input
   A_SrcFails("\"foo\nbar\"")  // Linebreak
 
+  // TODO: Test lex.srcLocation
+
   return 0;
 }
 
